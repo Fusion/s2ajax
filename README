@@ -53,6 +53,8 @@ function got_a_shape(text_returned)
 {
     alert(text_returned); // 'A red circle!'
 }
+Note:
+Unlike the original Sajax, we do not need to prepend 'x_' before function names.
 
 --------------------------------------------------------------------------------
 Now, take a look at the example files, they are pretty straightforward.
