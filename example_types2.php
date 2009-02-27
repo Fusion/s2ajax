@@ -3,11 +3,9 @@ require("S2ajax.php");
 $sajax_request_type = "GET";
 sajax_init();
 // Note that exported methods are static!
-sajax_method_export(TypeTester, return_array);
-sajax_method_export(TypeTester, return_object);
+sajax_export('TypeTester$return_array', 'TypeTester$return_object');
 sajax_method_export(TypeTester, return_string);
-sajax_method_export(TypeTester, return_int);
-sajax_method_export(TypeTester, return_float);
+sajax_export(array(TypeTester, return_int), array(TypeTester, return_float));
 // And now, let's handle the user's request
 sajax_handle_client_request();
 

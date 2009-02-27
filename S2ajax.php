@@ -402,7 +402,13 @@ if (!isset($SAJAX_INCLUDED)) {
 		$n = func_num_args();
 		for ($i = 0; $i < $n; $i++) {
 			$nn = func_get_arg($i);
-			list($cn, $mn) = explode('$', $nn);
+			if(is_array($nn))
+			{
+				list($cn, $mn) = $nn;
+				$nn = $cn . '$' . $mn;
+			}
+			else
+				list($cn, $mn) = explode('$', $nn);
 			if(empty($mn))
 			{
 				$mn = $cn;
