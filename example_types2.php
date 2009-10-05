@@ -1,13 +1,12 @@
 <?
 require("S2ajax.php");
-$sajax_request_type = "GET";
-sajax_init();
+$s2ajax_request_type = "GET";
 // Note that exported methods are static!
-sajax_export('TypeTester$return_array', 'TypeTester$return_object');
-sajax_method_export(TypeTester, return_string);
-sajax_export(array(TypeTester, return_int), array(TypeTester, return_float));
+s2ajax_export('TypeTester$return_array', 'TypeTester$return_object');
+s2ajax_method_export(TypeTester, return_string);
+s2ajax_export(array(TypeTester, return_int), array(TypeTester, return_float));
 // And now, let's handle the user's request
-sajax_handle_client_request();
+s2ajax_handle_client_request();
 
 class MyObj
 {
@@ -48,7 +47,7 @@ class TypeTester
 <head>
 <script>
 <?
-	sajax_show_javascript();
+	s2ajax_show_javascript();
 ?>
 function display_result(val) {
 	var repr;

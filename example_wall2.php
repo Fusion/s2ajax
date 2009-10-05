@@ -3,13 +3,12 @@
 // The world's least efficient wall implementation
 //
 require("S2ajax.php");
-$sajax_request_type = "GET";
-sajax_init();
+$s2ajax_request_type = "GET";
 // Note that exported methods are static!
-sajax_method_export(Wall, add_line);
-sajax_method_export(Wall, server_refresh);
+s2ajax_method_export(Wall, add_line);
+s2ajax_method_export(Wall, server_refresh);
 // And now, let's handle the user's request
-sajax_handle_client_request();	
+s2ajax_handle_client_request();	
 
 class Wall
 {
@@ -56,7 +55,7 @@ class Wall
 	</style>
 	<script>
 	<?
-	sajax_show_javascript();
+	s2ajax_show_javascript();
 	?>
 	
 	var check_n = 0;
@@ -89,7 +88,7 @@ class Wall
 		line = document.getElementById("line").value;
 		if (line == "") 
 			return;
-		sajax_request_type = "POST";
+		s2ajax_request_type = "POST";
 		Wall$add_line("[" + handle + "] " + line, add_cb);
 		document.getElementById("line").value = "";
 	}
@@ -99,8 +98,8 @@ class Wall
 <body onload="refresh();">
 
 <form name="f" action="#" onsubmit="add();return false;">
-	<b><a href="http://www.modernmethod.com/sajax">Sajax</a>
-	v<?= $sajax_version; ?></b>
+	<b><a href="http://nexus.zteo.com">S2ajax</a>
+	v<?= $s2ajax_version; ?></b>
 	-
 	You are a guinea pig
 	-

@@ -26,18 +26,50 @@
  * leverages PHP5's magic properties through a class loader.
  */
 
-if (!isset($SAJAX_INCLUDED)) {
+/*
+ * CONVENTIONS:
+ *
+ * function names starting with an underscore ('_') are considered private and not part
+ * of the public API.
+ */
+
+/*
+ * PUBLIC API:
+ *
+ * s2ajax_export(function)
+ * s2ajax_export(function1, function2, ...)
+ * s2ajax_export(class$staticmethod)
+ * s2ajax_export(array(class, method))
+ * s2ajax_export(function1, class$staticmethod, array(class, method), function2, ...)
+ *
+ * s2ajax_export_method(clName, fnName)
+ *
+ * s2ajax_export_class(className)
+ * s2ajax_export_class(className, array(method1, method2, ...))
+ *
+ * s2ajax_export_object(obj)
+ * ...
+ * s2ajax_handle_client_request();
+ * ...
+ * s2ajax_show_javascript();
+ */
+
+if (!isset($S2AJAX_INCLUDED)) {
 
 	/*  
 	 * GLOBALS AND DEFAULTS
 	 *
 	 */ 
-	$GLOBALS['sajax_version'] = '0.12';	
-	$GLOBALS['sajax_debug_mode'] = false;
-	$GLOBALS['sajax_export_list'] = array();
-	$GLOBALS['sajax_request_type'] = 'GET';
-	$GLOBALS['sajax_remote_uri'] = '';
-	$GLOBALS['sajax_failure_redirect'] = '';
+	define('LEGACY',   0);
+	define('CLASSES',  1);
+	define('OBJECTS',  2);
+
+	$GLOBALS['s2ajax_version'] = '1.0';	
+	$GLOBALS['s2ajax_debug_mode'] = false;
+	$GLOBALS['s2ajax_export_list'] = array(LEGACY => array(), CLASSES => array(), OBJECTS => array());
+	$GLOBALS['s2ajax_request_type'] = 'GET';
+	$GLOBALS['s2ajax_remote_uri'] = '';
+	$GLOBALS['s2ajax_failure_redirect'] = '';
 	
 	/*
 	 * CODE
@@ -45,65 +77,17 @@ if (!isset($SAJAX_INCLUDED)) {
 	 */ 
 	 
 	//
-	// Initialize the Sajax library.
+	// Initialize the S2ajax library.
+	// Only here for backward compatibility. Not needed anymore.
 	//
-	function sajax_init() {
+	function s2ajax_init() {
 	}
 	
-	//
-	// Helper function to return the script's own URI. 
-	// 
-	function sajax_get_my_uri() {
-		return $_SERVER["REQUEST_URI"];
-	}
-	$sajax_remote_uri = sajax_get_my_uri();
-	
-	//
-	// Helper function to return an eval()-usable representation
-	// of an object in JavaScript.
-	// 
-	function sajax_get_js_repr($value) {
-		$type = gettype($value);
-		
-		if ($type == "boolean") {
-			return ($value) ? "Boolean(true)" : "Boolean(false)";
-		} 
-		elseif ($type == "integer") {
-			return "parseInt($value)";
-		} 
-		elseif ($type == "double") {
-			return "parseFloat($value)";
-		} 
-		elseif ($type == "array" || $type == "object" ) {
-			//
-			// XXX Arrays with non-numeric indices are not
-			// permitted according to ECMAScript, yet everyone
-			// uses them.. We'll use an object.
-			// 
-			$s = "{ ";
-			if ($type == "object") {
-				$value = get_object_vars($value);
-			} 
-			foreach ($value as $k=>$v) {
-				$esc_key = sajax_esc($k);
-				if (is_numeric($k)) 
-					$s .= "$k: " . sajax_get_js_repr($v) . ", ";
-				else
-					$s .= "\"$esc_key\": " . sajax_get_js_repr($v) . ", ";
-			}
-			if (count($value))
-				$s = substr($s, 0, -2);
-			return $s . " }";
-		} 
-		else {
-			$esc_val = sajax_esc($value);
-			$s = "'$esc_val'";
-			return $s;
-		}
-	}
-
-	function sajax_handle_client_request() {
-		global $sajax_export_list, $inflector;
+	/*
+	 * Public API starts here
+	 */
+	function s2ajax_handle_client_request() {
+		global $s2ajax_export_list, $inflector;
 		
 		$mode = "";
 		
@@ -117,6 +101,7 @@ if (!isset($SAJAX_INCLUDED)) {
 			return;
 
 		$target = "";
+		$rsuuid = false;
 		
 		if ($mode == "get") {
 			// Bust cache in the head
@@ -130,6 +115,8 @@ if (!isset($SAJAX_INCLUDED)) {
 				$args = $_GET["rsargs"];
 			else
 				$args = array();
+			if(!empty($_GET["rsuuid"]))
+				$rsuuid = $_GET["rsuuid"];
 		}
 		else {
 			$func_name = $_POST["rs"];
@@ -137,6 +124,8 @@ if (!isset($SAJAX_INCLUDED)) {
 				$args = $_POST["rsargs"];
 			else
 				$args = array();
+			if(!empty($_POST["rsuuid"]))
+				$rsuuid = $_POST["rsuuid"];
 		}
 		
 		list($cn, $mn) = explode('$', $func_name);
@@ -146,11 +135,44 @@ if (!isset($SAJAX_INCLUDED)) {
 #			include('controllers/' . $inflector->inflectee($cn)->toFile()->value() . '.php');
 		}
 		// CHECK!
-		if(empty($sajax_export_list[$func_name]))
+		if($rsuuid) {
+			if(	empty($s2ajax_export_list[CLASSES][$cn]) ||
+				empty($s2ajax_export_list[CLASSES][$cn]['methods'][$mn])) {
+				echo "-:$func_name not callable";
+			}
+			else {
+				// Grab/create instance
+				if('' == session_id()) {
+					session_start();
+				}
+
+				if(!isset($_SESSION['S2AJAX'])) {
+					$_SESSION['S2AJAX'] = array(OBJECTS => array());
+				}
+				if(!isset($_SESSION['S2AJAX'][OBJECTS][$rsuuid])) {
+					$instance = new $cn();
+				}
+				else {
+					$instance = unserialize(
+						$_SESSION['S2AJAX'][OBJECTS][$rsuuid]);
+				}
+
+				echo "+:";
+				$result = call_user_func_array(array($instance, $mn), $args);
+
+				$si = serialize($instance);
+				$_SESSION['S2AJAX'][OBJECTS][$rsuuid] = $si;
+
+				echo "var res = " . trim(_s2ajax_get_js_repr($result)) . "; res;";
+			}
+			exit;
+		}
+
+		if(empty($s2ajax_export_list[LEGACY][$func_name]))
 			echo "-:$func_name not callable";
 		else {
 			echo "+:";
-			list($cn, $mn) = $sajax_export_list[$func_name];
+			list($cn, $mn) = $s2ajax_export_list[LEGACY][$func_name];
 			if(empty($cn))
 				$result = call_user_func_array($func_name, $args);
 			else
@@ -182,21 +204,194 @@ if (!isset($SAJAX_INCLUDED)) {
 				*/
 				$result = call_user_func_array(array($cn, $mn), $args);
 			}
-			echo "var res = " . trim(sajax_get_js_repr($result)) . "; res;";
+			echo "var res = " . trim(_s2ajax_get_js_repr($result)) . "; res;";
 		}
 		exit;
 	}
-	
-	function sajax_get_common_js() {
-		global $sajax_debug_mode;
-		global $sajax_request_type;
-		global $sajax_remote_uri;
-		global $sajax_failure_redirect;
+
+	function s2ajax_export() {
+		global $s2ajax_export_list;
 		
-		$t = strtoupper($sajax_request_type);
+		$n = func_num_args();
+		for ($i = 0; $i < $n; $i++) {
+			$nn = func_get_arg($i);
+			if(is_array($nn))
+			{
+				list($cn, $mn) = $nn;
+				$nn = $cn . '$' . $mn;
+			}
+			else
+				list($cn, $mn) = explode('$', $nn);
+			if(empty($mn))
+			{
+				$mn = $cn;
+				$cn = null;
+			}
+			$s2ajax_export_list[LEGACY][$nn] = array($cn, $mn);
+		}
+	}
+	
+	// Only here for backward compatibility. This was a bad function name.
+	function s2ajax_method_export($clName, $fnName) {
+		s2ajax_export_method($clName, $fnName);		
+	}
+
+	function s2ajax_export_method($clName, $fnName) {
+		s2ajax_export($clName . '$' . $fnName);
+	}
+
+	function s2ajax_export_class($className, $methods = null) {
+		global $s2ajax_export_list;
+
+		$s2ajax_export_list[CLASSES][$className] = array('methods' => array());
+
+		if(is_array($methods)) {
+			foreach($methods as $method) {
+				$s2ajax_export_list[CLASSES][$className]['methods'][$method] = true;
+			}
+		}
+		else
+		{
+			$classExplorer = new ReflectionClass($className);
+			foreach($classExplorer->getMethods() as $method) {
+				if($method->isPublic()) {
+					$s2ajax_export_list[CLASSES][$className]['methods'][$method->getName()] = true;
+				}
+			}
+		}
+	}
+
+	/*
+ 	 * Not yet. I am not sure that we will ever have a need to export instances directly from PHP.
+	 * If we do, this code is a good place to start.
+	 *
+	function s2ajax_export_object($obj) {
+		global $s2ajax_export_list;
+		global $s2ajax_uuid;
+
+		$s2ajax_uuid = 'instance_' . uniqid();
+		if('' == session_id()) {
+			session_start();
+		}
+		$_SESSION['S2AJAX'][$s2ajax_uuid] = array();
+
+		$s = serialize($obj);
+		$_SESSION['S2AJAX'][$s2ajax_uuid]['obj'] = $s;
+
+		$varName = false;
+		foreach($GLOBALS as $name => $value) {
+			if($obj === $value) {
+				$varName = $name;
+			}
+		}
+		if(!$varName) {
+			die("In s2ajax_object_export(): please use a global object");
+		}
+
+		$s2ajax_export_list[OBJECTS][$varName] = array('methods' => array());
+
+		$classExplorer = new ReflectionClass($obj);
+		foreach($classExplorer->getMethods() as $method) {
+			if($method->isPublic()) {
+				$s2ajax_export_list[OBJECTS][$varName]['methods'][$method->getName()] = true;
+			}
+		}
+	}
+	*/
+
+	$s2ajax_js_has_been_shown = 0;
+	function s2ajax_show_javascript()
+	{
+		global $s2ajax_js_has_been_shown;
+		global $s2ajax_export_list;
+		
+		$html = "";
+		if (! $s2ajax_js_has_been_shown) {
+			$html .= _s2ajax_get_common_js();
+			$s2ajax_js_has_been_shown = 1;
+		}
+		foreach ($s2ajax_export_list[LEGACY] as $func) {
+			$html .= _s2ajax_get_one_stub($func);
+		}
+		foreach ($s2ajax_export_list[CLASSES] as $className => $struct) {
+			$html .= _s2ajax_get_one_c_stub($className, $struct);
+		}
+		foreach ($s2ajax_export_list[OBJECTS] as $varName => $struct) {
+			$html .= _s2ajax_get_one_o_stub($varName, $struct);
+		}
+		echo $html;
+	}
+	
+	/*
+	 * Private functions start here
+	 * You can stop reading unless you are modifying S2ajax itself.
+	 */
+	
+	//
+	// Helper function to return the script's own URI. 
+	// 
+	function _s2ajax_get_my_uri() {
+		return $_SERVER["REQUEST_URI"];
+	}
+	$s2ajax_remote_uri = _s2ajax_get_my_uri();
+	
+	//
+	// Helper function to return an eval()-usable representation
+	// of an object in JavaScript.
+	// 
+	function _s2ajax_get_js_repr($value) {
+		$type = gettype($value);
+		
+		if ($type == "boolean") {
+			return ($value) ? "Boolean(true)" : "Boolean(false)";
+		} 
+		elseif ($type == "integer") {
+			return "parseInt($value)";
+		} 
+		elseif ($type == "double") {
+			return "parseFloat($value)";
+		} 
+		elseif ($type == "array" || $type == "object" ) {
+			//
+			// XXX Arrays with non-numeric indices are not
+			// permitted according to ECMAScript, yet everyone
+			// uses them.. We'll use an object.
+			// 
+			$s = "{ ";
+			if ($type == "object") {
+				$value = get_object_vars($value);
+			} 
+			foreach ($value as $k=>$v) {
+				$esc_key = _s2ajax_esc($k);
+				if (is_numeric($k)) 
+					$s .= "$k: " . _s2ajax_get_js_repr($v) . ", ";
+				else
+					$s .= "\"$esc_key\": " . _s2ajax_get_js_repr($v) . ", ";
+			}
+			if (count($value))
+				$s = substr($s, 0, -2);
+			return $s . " }";
+		} 
+		else {
+			$esc_val = _s2ajax_esc($value);
+			$s = "'$esc_val'";
+			return $s;
+		}
+	}
+	
+	function _s2ajax_get_common_js() {
+		global $s2ajax_uuid;
+		global $s2ajax_debug_mode;
+		global $s2ajax_request_type;
+		global $s2ajax_remote_uri;
+		global $s2ajax_failure_redirect;
+		
+		$t = strtoupper($s2ajax_request_type);
 		if ($t != "" && $t != "GET" && $t != "POST") 
 			return "// Invalid type: $t.. \n\n";
 		
+		$s2ajax_uuid_str = ($s2ajax_uuid) ? "var s2ajax_uuid = '$s2ajax_uuid';\n" : '';
+
 		ob_start();
 		?>
 		
@@ -204,18 +399,39 @@ if (!isset($SAJAX_INCLUDED)) {
 		// remote scripting library (c) 2009 Chris F. Ravenscroft
 		// original awesome remote scripting library (c) copyright 2005 modernmethod, inc
 		//
-		var sajax_debug_mode = <?php echo $sajax_debug_mode ? "true" : "false"; ?>;
-		var sajax_request_type = "<?php echo $t; ?>";
-		var sajax_target_id = "";
-		var sajax_failure_redirect = "<?php echo $sajax_failure_redirect; ?>";
+		<?php echo $s2ajax_uuid_str; ?>
+		var s2ajax_debug_mode = <?php echo $s2ajax_debug_mode ? "true" : "false"; ?>;
+		var s2ajax_request_type = "<?php echo $t; ?>";
+		var s2ajax_target_id = "";
+		var s2ajax_failure_redirect = "<?php echo $s2ajax_failure_redirect; ?>";
 		
-		function sajax_debug(text) {
-			if (sajax_debug_mode)
+		function s2ajax_debug(text) {
+			if (s2ajax_debug_mode)
 				alert(text);
 		}
 		
- 		function sajax_init_object() {
- 			sajax_debug("sajax_init_object() called..")
+		function s2ajax_4c() {
+			return (((1 + Math.random()) * 0x10000) | 0).toString(16).substring(1);
+		}
+
+		function s2ajax_bogus_uuid() {
+			return (
+				s2ajax_4c() +
+				s2ajax_4c() +
+				'-' +
+				s2ajax_4c() +
+				'-' +
+				s2ajax_4c() +
+				'-' +
+				s2ajax_4c() +
+				'-' +
+				s2ajax_4c() +
+				s2ajax_4c() +
+				s2ajax_4c());
+		}
+	
+ 		function s2ajax_init_object() {
+ 			s2ajax_debug("s2ajax_init_object() called..")
  			
  			var A;
  			
@@ -236,71 +452,77 @@ if (!isset($SAJAX_INCLUDED)) {
 			if(!A && typeof XMLHttpRequest != "undefined")
 				A = new XMLHttpRequest();
 			if (!A)
-				sajax_debug("Could not create connection object.");
+				s2ajax_debug("Could not create connection object.");
 			return A;
 		}
 		
-		var sajax_requests = new Array();
+		var s2ajax_requests = new Array();
 		
-		function sajax_cancel() {
-			for (var i = 0; i < sajax_requests.length; i++) 
-				sajax_requests[i].abort();
+		function s2ajax_cancel() {
+			for (var i = 0; i < s2ajax_requests.length; i++) 
+				s2ajax_requests[i].abort();
 		}
 		
-		function sajax_do_call(func_name, args) {
+		function s2ajax_do_call(uuid, func_name, args) {
 			var i, x, n;
 			var uri;
 			var post_data;
 			var target_id;
 			
-			sajax_debug("in sajax_do_call().." + sajax_request_type + "/" + sajax_target_id);
-			target_id = sajax_target_id;
-			if (typeof(sajax_request_type) == "undefined" || sajax_request_type == "") 
-				sajax_request_type = "GET";
+			s2ajax_debug("in s2ajax_do_call().." + s2ajax_request_type + "/" + s2ajax_target_id);
+			target_id = s2ajax_target_id;
+			if (typeof(s2ajax_request_type) == "undefined" || s2ajax_request_type == "") 
+				s2ajax_request_type = "GET";
 			
-			uri = "<?php echo $sajax_remote_uri; ?>";
-			if (sajax_request_type == "GET") {
+			uri = "<?php echo $s2ajax_remote_uri; ?>";
+			if (s2ajax_request_type == "GET") {
 			
 				if (uri.indexOf("?") == -1) 
 					uri += "?rs=" + escape(func_name);
 				else
 					uri += "&rs=" + escape(func_name);
-				uri += "&rst=" + escape(sajax_target_id);
+				uri += "&rst=" + escape(s2ajax_target_id);
 				uri += "&rsrnd=" + new Date().getTime();
+				if(uuid) {
+					uri += "&rsuuid=" + uuid;
+				}
 				
 				for (i = 0; i < args.length-1; i++) 
 					uri += "&rsargs[]=" + escape(args[i]);
 
 				post_data = null;
 			} 
-			else if (sajax_request_type == "POST") {
+			else if (s2ajax_request_type == "POST") {
 				post_data = "rs=" + escape(func_name);
-				post_data += "&rst=" + escape(sajax_target_id);
+				post_data += "&rst=" + escape(s2ajax_target_id);
 				post_data += "&rsrnd=" + new Date().getTime();
+				if(uuid) {
+					post_data += "&rsuuid=" + uuid;
+				}
 				
 				for (i = 0; i < args.length-1; i++) 
 					post_data = post_data + "&rsargs[]=" + escape(args[i]);
 			}
 			else {
-				alert("Illegal request type: " + sajax_request_type);
+				alert("Illegal request type: " + s2ajax_request_type);
 			}
 			
-			x = sajax_init_object();
+			x = s2ajax_init_object();
 			if (x == null) {
-				if (sajax_failure_redirect != "") {
-					location.href = sajax_failure_redirect;
+				if (s2ajax_failure_redirect != "") {
+					location.href = s2ajax_failure_redirect;
 					return false;
 				} else {
-					sajax_debug("NULL sajax object for user agent:\n" + navigator.userAgent);
+					s2ajax_debug("NULL s2ajax object for user agent:\n" + navigator.userAgent);
 					return false;
 				}
 			} else {
-				x.open(sajax_request_type, uri, true);
+				x.open(s2ajax_request_type, uri, true);
 				// window.open(uri);
 				
-				sajax_requests[sajax_requests.length] = x;
+				s2ajax_requests[s2ajax_requests.length] = x;
 				
-				if (sajax_request_type == "POST") {
+				if (s2ajax_request_type == "POST") {
 					x.setRequestHeader("Method", "POST " + uri + " HTTP/1.1");
 					x.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
 				}
@@ -309,7 +531,7 @@ if (!isset($SAJAX_INCLUDED)) {
 					if (x.readyState != 4) 
 						return;
 
-					sajax_debug("received " + x.responseText);
+					s2ajax_debug("received " + x.responseText);
 				
 					var status;
 					var data;
@@ -336,16 +558,16 @@ if (!isset($SAJAX_INCLUDED)) {
 								}
 								callback(eval(data), extra_data);
 							} catch (e) {
-								sajax_debug("Caught error " + e + ": Could not eval " + data );
+								s2ajax_debug("Caught error " + e + ": Could not eval " + data );
 							}
 						}
 					}
 				}
 			}
 			
-			sajax_debug(func_name + " uri = " + uri + "/post = " + post_data);
+			s2ajax_debug(func_name + " uri = " + uri + "/post = " + post_data);
 			x.send(post_data);
-			sajax_debug(func_name + " waiting..");
+			s2ajax_debug(func_name + " waiting..");
 			delete x;
 			return true;
 		}
@@ -356,12 +578,8 @@ if (!isset($SAJAX_INCLUDED)) {
 		return $html;
 	}
 	
-	function sajax_show_common_js() {
-		echo sajax_get_common_js();
-	}
-	
 	// javascript escape a value
-	function sajax_esc($val)
+	function _s2ajax_esc($val)
 	{
 		$val = str_replace("\\", "\\\\", $val);
 		$val = str_replace("\r", "\\r", $val);
@@ -370,7 +588,7 @@ if (!isset($SAJAX_INCLUDED)) {
 		return str_replace('"', '\\"', $val);
 	}
 
-	function sajax_get_one_stub($func_desc) {
+	function _s2ajax_get_one_stub($func_desc) {
 		// wrapper for [?php echo $func_name; ?]
 		if(empty($func_desc[0]))
 			$func_name = $func_desc[1];
@@ -380,9 +598,8 @@ if (!isset($SAJAX_INCLUDED)) {
 		ob_start();	
 		?>
 		
-		
 		function <?php echo $func_name; ?>() {
-			sajax_do_call("<?php echo $func_name; ?>",
+			s2ajax_do_call(null, "<?php echo $func_name; ?>",
 				<?php echo $func_name; ?>.arguments);
 		}
 		
@@ -392,60 +609,40 @@ if (!isset($SAJAX_INCLUDED)) {
 		return $html;
 	}
 	
-	function sajax_show_one_stub($func_name) {
-		echo sajax_get_one_stub($func_name);
-	}
-	
-	function sajax_export() {
-		global $sajax_export_list;
-		
-		$n = func_num_args();
-		for ($i = 0; $i < $n; $i++) {
-			$nn = func_get_arg($i);
-			if(is_array($nn))
-			{
-				list($cn, $mn) = $nn;
-				$nn = $cn . '$' . $mn;
-			}
-			else
-				list($cn, $mn) = explode('$', $nn);
-			if(empty($mn))
-			{
-				$mn = $cn;
-				$cn = null;
-			}
-			$sajax_export_list[$nn] = array($cn, $mn);
-		}
-	}
-	
-	function sajax_method_export($clName, $fnName)
-	{
-		sajax_export($clName . '$' . $fnName);
-	}
+	function _s2ajax_get_one_c_stub($varName, $struct) {
+		ob_start();
+		?>
 
-	$sajax_js_has_been_shown = 0;
-	function sajax_get_javascript()
-	{
-		global $sajax_js_has_been_shown;
-		global $sajax_export_list;
-		
-		$html = "";
-		if (! $sajax_js_has_been_shown) {
-			$html .= sajax_get_common_js();
-			$sajax_js_has_been_shown = 1;
+		function <?php echo $varName; ?>() {
+			this.uuid = s2ajax_bogus_uuid();
 		}
-		foreach ($sajax_export_list as $func) {
-			$html .= sajax_get_one_stub($func);
+		<?php
+		foreach($struct['methods'] as $method => $ok) {
+			$func_name = $varName . '$' . $method;
+			echo $varName . '.prototype.' . $method; ?> = function() {
+			s2ajax_do_call(this.uuid, "<?php echo $func_name; ?>", arguments);
 		}
+		<?php
+		}
+
+		$html = ob_get_contents();
+		ob_end_clean();
 		return $html;
 	}
-	
-	function sajax_show_javascript()
-	{
-		echo sajax_get_javascript();
+
+	function _s2ajax_get_one_o_stub($varName, $struct) {
+		ob_start();
+		?>
+
+		function <?php echo $varName; ?>() {
+		}
+
+		<?php
+		$html = ob_get_contents();
+		ob_end_clean();
+		return $html;
 	}
 
-	
-	$SAJAX_INCLUDED = 1;
+	$S2AJAX_INCLUDED = 1;
 }
 ?>
