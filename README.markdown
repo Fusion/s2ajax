@@ -2,22 +2,74 @@
 
 The original package, Sajax, was written by the smart people at Modern Method and you can find more information on that package at [their web site](http://www.modernmethod.com/sajax/)
 
+I originally wrote this new package to add support for PHP objects plus a couple other refinements but 99% of the credit should, again, go to these guys.
+
 Unlike this package, at least so far, the original package also supports Perl, CFM, Lua, IO, ASP and Ruby
 
-I wrote this new package to add support for PHP objects plus a couple other refinements but 99% of the credit should, again, go to these guys.
-
 ![S2ajax logo](S2ajax2.png)
+
+# ABOUT
+
+I wrote this package to add seamless support between Python < - > JavaScript and PHP < - > JavaScript so that backend objects's methods could be selectively exposed to the frontend JavaScript. In the process I added persistence over multiple Ajax calls, which is quite useful in a "share nothing" context (this concept was introduced so that multiple clients could not share the same memory space, not multiple queries from the same client, but of course nobody had Ajax in mind when it was designed, so this is one of the benefits of this package)
+
+## UPDATE [03/2012]: PYTHON
+
+Good Python solutions are finally available to work with most popular web servers (Apache, Lighttpd, Nginx...).
+I can finally work with Python as my primary web language.
+Therefore, here is S2ajax!
+
+### HOWTO:
+
+Very similar to PHP's howto found below.
+However, I did away with the class_name$method_name syntax favoured in the old implementation.
+Available:
+
+* s2ajax_export(< function >)
+* s2ajax_export(< function >, < function >)
+* s2ajax_export([< class >, < method_name >], [< class >, < method_name >])
+* s2ajax_method_export(< class_name >, < method_name >)
+* or sajax_export_method...etc
+* s2ajax_export_class(< class_name >, [ < method_name >, < method_name >)
+* s2ajax_export_class(< class_name >)
+
+It is still possible to invoke a function or a method.
+However, methods can now be invoked either as class method or as instance method.
+I recommend having a close look at test.py but this boils down to:
+
+#### Class method
+
+    class MyClass:
+        def my_class_function(arg1, arg2):
+            pass
+
+    # JavaScript Invocation:
+    MyClass$my_class_function(1, 2);
+
+#### Instance method
+
+    class MyClass:
+        def __init__(self):
+            # local initializations to self
+            pass
+        def my_instance_function(self, arg1, arg2):
+            # modifications to self, etc.
+
+        # JavaScript Invocation:
+        var my_instance = new MyClass();
+        my_instance(1, 2);
+
+## PHP
 
 Note: the blocks that are commented out have no specific use here.
 
 They leverage my simple framework ([link](http://github.com/Fusion/lenses/tree/master)) that in turns leverages PHP5's magic properties through a class loader.
 
-# WHAT'S NEW:
+### WHAT'S NEW:
 
 v1.0 introduces real class export. When a PHP class is instantiated in JavaScript, it is now fully handled like a regular JavaScript class with no special syntax.
 Of course there are limitations but they are good practice anyway: use accessors to manipulate a class variables and do not access static variables from the client-side. 
 
-# HOWTO:
+### HOWTO:
 
 **Simple Syntax for exporting PHP methods to Javascript:**
 
