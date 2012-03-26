@@ -58,6 +58,17 @@ I recommend having a close look at test.py but this boils down to:
         var my_instance = new MyClass();
         my_instance(1, 2);
 
+Note that, unlike PHP, Python on the web can be used with different WSGI packages. As a result, it is difficult to predict what will be made available to our package and in what form.
+I addressed this situation by making it mandatory for you, when calling s2ajax_init(), to pass three arguments to this call:
+
+1. a dictionary of arguments passed using the current 'GET' request, if there is one
+2. a dictionary of form fields passed using the current 'POST' request, if there is one
+3. a session object; i.e. a persistent representation or your end-user's session
+
+Note that you need either 1. or 2.
+
+A very simple way to test this package is using the [Flask micro-framework](http://flask.pocoo.org/); test.py uses that framework's built-in variables when invoking s2ajax.
+
 ## PHP
 
 Note: the blocks that are commented out have no specific use here.
