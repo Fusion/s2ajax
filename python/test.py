@@ -86,9 +86,9 @@ var mytester = new Tester();
             <body>
             <h1>A test</h1>
 <p><button onclick="hello('cruel', 'world', hello_cb);">Test Function</button></p>
-<p><button onclick="Tester$sayhello('John', hello_cb);">Test Static Method</button></p>
-<p><button onclick="Tester$colors(colors_cb);">A Series Of Colors</button></p>
-<p><button onclick="Tester$morecolors(colors_cb);">More Colors</button></p>
+<p><button onclick="Tester.sayhello('John', hello_cb);">Test Static Method</button></p>
+<p><button onclick="Tester.colors(colors_cb);">A Series Of Colors</button></p>
+<p><button onclick="Tester.morecolors(colors_cb);">More Colors</button></p>
 <p><button onclick="mytester.increment_counter(display_result);">Increment Counter</button></p>
         """
     return txt

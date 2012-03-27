@@ -5,9 +5,12 @@ from types import *
 import pickle
 from pprint import pprint
 
-S2LEGACY = 0
+S2LEGACY  = 0
 S2CLASSES = 1
 S2OBJECTS = 2
+
+CLASS_FN    = 0
+INSTANCE_FN = 1
 
 class S2ajax:
     def __init__(self, s2get, s2post, s2session):
@@ -30,6 +33,7 @@ class S2ajax:
             S2OBJECTS: {}
         }
 
+        self.s2cached = {}
         self.s2stubbed = {}
 
     def js_esc(self, value):
@@ -63,6 +67,17 @@ class S2ajax:
                 s = s[:-2]
             return s + " }"
         return "'%s'" % self.js_esc(value)
+
+    def class_info(self, class_desc):
+        class_info_obj = s2ajax.s2cached.get(class_desc.__name__)
+        if class_info_obj == None:
+            s2ajax.s2cached[class_desc.__name__] = {}
+            for k,v in [member for member in  inspect.getmembers(class_desc, predicate = inspect.isfunction) if member[0][:2] != '__']:
+                s2ajax.s2cached[class_desc.__name__][k] = CLASS_FN
+            for k,v in [member for member in  inspect.getmembers(class_desc, predicate = inspect.ismethod)   if member[0][:2] != '__']:
+                s2ajax.s2cached[class_desc.__name__][k] = INSTANCE_FN
+            class_info_obj = s2ajax.s2cached[class_desc.__name__]
+        return class_info_obj
 
     def common_js(self):
         if self.s2reqtype != 'GET' and self.s2reqtype != 'POST':
@@ -243,18 +258,20 @@ function s2ajax_do_call(uuid, func_name, args) {
         """ % ( s2ajax_uuid_str, s2ajax_debug_mode, s2ajax_request_type, self.s2failure, self.s2remote )
 
     def get_one_stub(self, func_desc):
-        class_name = None
-        if func_desc[0] == None:
-            func_name = func_desc[1].__name__
-        else:
-            class_name = func_desc[0].__name__
-            func_name = class_name + '.prototype.' + func_desc[1]
-            static_func_name = class_name + '$' + func_desc[1]
-
         out = ''
 
-        if class_name != None:
-            if s2ajax.s2stubbed.get(class_name) == None:
+        if func_desc[0] == None: # function alone
+            func_name = func_desc[1].__name__
+            out += """
+function %s() {
+s2ajax_do_call(null, "%s", arguments); // Deprecated: %s.arguments
+}
+            """ % (func_name, func_name, func_name)
+        else: # class, method name
+            class_info = s2ajax.class_info(func_desc[0])
+            class_type = class_info.get(func_desc[1])
+            class_name = func_desc[0].__name__
+            if s2ajax.s2stubbed.get(class_name) == None: # Constructor
                 s2ajax.s2stubbed[class_name] = True
                 out += """
 %s = function() {
@@ -262,21 +279,21 @@ function s2ajax_do_call(uuid, func_name, args) {
 }
 """ % (class_name)
 
-        if class_name != None:
+            if class_type == INSTANCE_FN:
+                func_name = class_name + '.prototype.' + func_desc[1]
+                remote_name = class_name + '.' + func_desc[1]
+                uuid_str = 'this.uuid'
+            elif class_type == CLASS_FN:
+                func_name = class_name + '.' + func_desc[1]
+                remote_name = func_name
+                uuid_str = 'null'
+        
             out += """
 %s = function() {
-s2ajax_do_call(null, "%s", arguments);
+s2ajax_do_call(%s, "%s", arguments);
 }
-%s = function() {
-s2ajax_do_call(this.uuid, "%s", arguments);
-}
-            """ % (static_func_name, static_func_name, func_name, static_func_name)
-        else:
-            out += """
-function %s() {
-s2ajax_do_call(null, "%s", arguments); // Deprectaed: %s.arguments
-}
-            """ % (func_name, func_name, func_name)
+            """ % (func_name, uuid_str, remote_name)
+
         return out
 
 def s2ajax_init(s2get, s2post, s2session):
@@ -325,17 +342,11 @@ def s2ajax_handle_client_request():
         if s2ajax.s2post.get('rsuuid') != None:
             rsuuid = s2ajax.s2post.get('rsuuid')
 
-    try:
-        class_name, method_name = func_name.split('$')
-    except ValueError:
-        pass
-
-    # todo rsuuid
     if s2ajax.s2export[S2LEGACY].get(func_name) == None:
         return "-:%s not callable" % func_name
     else:
-        class_name, method_name = s2ajax.s2export[S2LEGACY].get(func_name)
-        if class_name == None: # function
+        class_desc, method_name = s2ajax.s2export[S2LEGACY].get(func_name)
+        if class_desc == None: # function
             result = method_name(*args)
         else:
             if rsuuid != None: # instance as opposed to class call
@@ -346,16 +357,16 @@ def s2ajax_handle_client_request():
                 if s2ajax.s2session['S2AJAX']['OBJECTS'].get(rsuuid) != None:
                     thisinstance = pickle.loads(s2ajax.s2session['S2AJAX']['OBJECTS'][rsuuid])
                 else:
-                    thisinstance = class_name()
+                    thisinstance = class_desc()
                 result = getattr(thisinstance, method_name)(*args)
                 pickled = pickle.dumps(thisinstance)
                 s2ajax.s2session['S2AJAX']['OBJECTS'][rsuuid] = pickled
                 s2ajax.s2session.modified = True
             else:
                 try:
-                    result = getattr(class_name, method_name)(*args) # will work is @ staticmethod
+                    result = getattr(class_desc, method_name)(*args) # will work is @ staticmethod
                 except TypeError:
-                    result = getattr(class_name(), method_name)(*args) # else, instantiate first...
+                    result = getattr(class_desc(), method_name)(*args) # else, instantiate first...
         return "+:var res = %s; res;" % s2ajax.js_repr(result).strip()
 
     return None
@@ -381,27 +392,39 @@ def s2ajax_export(*args):
 
     for arg in args:
         if not isinstance(arg, (list, tuple)): # function
-            index_name, class_name, method_name = [arg.__name__, None, arg]
-        else: # [class_name, method_name]
-            class_name, method_name = arg
-            index_name = class_name.__name__ + '$' + method_name
-        s2ajax.s2export[S2LEGACY][index_name] = [class_name, method_name]
+            index_name, class_desc, method_name = [arg.__name__, None, arg]
+        else: # [class_desc, method_name]
+            class_desc, method_name = arg
 
-def s2ajax_method_export(class_name, method_name):
-    s2ajax_export_method(class_name, method_name)
+            class_info = s2ajax.class_info(class_desc)
+            class_type = class_info.get(method_name)
 
-def s2ajax_export_method(class_name, method_name):
-    s2ajax_export([class_name, method_name])
+            if class_type == INSTANCE_FN:
+                index_name = class_desc.__name__ + '.' + method_name
+            elif class_type == CLASS_FN:
+                index_name = class_desc.__name__ + '.' + method_name
+            else:
+                print "-:Method %s does not exist in class %s" % (method_name, class_desc.__name__) # todo
+                return
 
-def s2ajax_export_class(class_name, methods = None):
+        s2ajax.s2export[S2LEGACY][index_name] = [class_desc, method_name]
+
+def s2ajax_method_export(class_desc, method_name):
+    s2ajax_export_method(class_desc, method_name)
+
+def s2ajax_export_method(class_desc, method_name):
+    s2ajax_export([class_desc, method_name])
+
+def s2ajax_export_class(class_desc, methods = None):
     global s2ajax
 
     if isinstance(methods, (list, tuple)): # a list of methods was provided
         for method_name in methods:
-            s2ajax_export([class_name, method_name])
+            s2ajax_export([class_desc, method_name])
     else: # full class, minus magic methods
-        for k,v in [member for member in  inspect.getmembers(class_name, predicate = inspect.ismethod) + inspect.getmembers(class_name, predicate = inspect.isfunction) if member[0][:2] != '__']:
-            s2ajax_export([class_name, k])
+        class_info = s2ajax.class_info(class_desc)
+        for k in class_info:
+            s2ajax_export([class_desc, k])
 
 def s2ajax_show_javascript():
     global s2ajax
@@ -415,4 +438,6 @@ def s2ajax_show_javascript():
     for func in s2ajax.s2export[S2LEGACY]:
         html += s2ajax.get_one_stub(s2ajax.s2export[S2LEGACY][func])
     
+    print "EXPORTS:"
+    pprint(s2ajax.s2export)
     return html

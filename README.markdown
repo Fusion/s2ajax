@@ -39,11 +39,12 @@ I recommend having a close look at test.py but this boils down to:
 #### Class method
 
     class MyClass:
+        @staticmethod
         def my_class_function(arg1, arg2):
             pass
 
     # JavaScript Invocation:
-    MyClass$my_class_function(1, 2);
+    MyClass.my_class_function(1, 2);
 
 #### Instance method
 
@@ -57,6 +58,9 @@ I recommend having a close look at test.py but this boils down to:
         # JavaScript Invocation:
         var my_instance = new MyClass();
         my_instance(1, 2);
+
+Did you notice the simple `@staticmethod` annotation?
+It's all the magic that's necessary to declare a class method in Python.
 
 Note that, unlike PHP, Python on the web can be used with different WSGI packages. As a result, it is difficult to predict what will be made available to our package and in what form.
 I addressed this situation by making it mandatory for you, when calling s2ajax_init(), to pass three arguments to this call:
