@@ -3,7 +3,7 @@ import inspect
 from time import gmtime, strftime
 from types import *
 import pickle
-from pprint import pprint
+#from pprint import pprint
 
 S2LEGACY  = 0
 S2CLASSES = 1
@@ -438,6 +438,4 @@ def s2ajax_show_javascript():
     for func in s2ajax.s2export[S2LEGACY]:
         html += s2ajax.get_one_stub(s2ajax.s2export[S2LEGACY][func])
     
-    print "EXPORTS:"
-    pprint(s2ajax.s2export)
     return html
