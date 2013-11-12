@@ -169,3 +169,7 @@ Now, take a look at the example files, they are pretty straightforward.
 
 -Chris.
 
+
+
+[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/Fusion/s2ajax/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+
